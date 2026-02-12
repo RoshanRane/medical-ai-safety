@@ -3,15 +3,48 @@ import torch
 from sklearn.metrics import f1_score, roc_auc_score, auc, roc_curve, confusion_matrix
 
 
+# def get_accuracy(y_hat, y, se=False):
+#     if y.dim() == 2:
+#         accuracy = ((y_hat.sigmoid() >.5).long() == y).float().mean().item()
+#     else:
+#         accuracy = (y_hat.argmax(dim=1) == y).sum().item() * 1.0 / len(y)
+#     if se:
+#         se = np.sqrt(accuracy * (1 - accuracy) / len(y))
+#         return accuracy, se
+#     return accuracy
+## ROSH computes balanced accuracy instead
 def get_accuracy(y_hat, y, se=False):
     if y.dim() == 2:
-        accuracy = ((y_hat.sigmoid() >.5).long() == y).float().mean().item()
+        # Binary classification
+        preds = (y_hat.sigmoid() > 0.5).long().view(-1)
+        y_flat = y.view(-1)
     else:
-        accuracy = (y_hat.argmax(dim=1) == y).sum().item() * 1.0 / len(y)
+        # Multiclass classification
+        preds = y_hat.argmax(dim=1)
+        y_flat = y
+
+    classes = torch.unique(y_flat)
+    per_class_acc = []
+    per_class_n = []
+
+    for c in classes:
+        mask = (y_flat == c)
+        n_c = mask.sum().item()
+        if n_c > 0:
+            class_acc = (preds[mask] == c).float().mean().item()
+            per_class_acc.append(class_acc)
+            per_class_n.append(n_c)
+
+    balanced_acc = np.mean(per_class_acc)
+
     if se:
-        se = np.sqrt(accuracy * (1 - accuracy) / len(y))
-        return accuracy, se
-    return accuracy
+        # SE of balanced accuracy: sqrt(sum(p_i(1-p_i)/n_i)) / k
+        # where k is the number of classes
+        k = len(per_class_acc)
+        var_sum = sum(p * (1 - p) / n for p, n in zip(per_class_acc, per_class_n))
+        se_val = np.sqrt(var_sum) / k
+        return balanced_acc, se_val
+    return balanced_acc
 
 
 def get_f1(y_hat, y):

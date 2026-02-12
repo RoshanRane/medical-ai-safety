@@ -1,5 +1,6 @@
 from pathlib import Path
-
+import os
+from os.path import basename, dirname, join, exists
 import numpy as np
 import pandas as pd
 import torch
@@ -108,8 +109,16 @@ class ISICDataset(BaseDataset):
 
     def construct_metadata(self, dirs_by_version):
         tables = []
-        for version, dir in dirs_by_version.items():
-            data = pd.read_csv(dir / Path(GROUND_TRUTH_FILES_BY_VERSION[version]))
+        for version, data_dir in dirs_by_version.items():
+            # first check if the ground truth file exists in the directory
+            if not (data_dir / Path(GROUND_TRUTH_FILES_BY_VERSION[version])).exists():
+                # check if it exists in the parent directory
+                if not (dirname(data_dir.rstrip('/')) / Path(GROUND_TRUTH_FILES_BY_VERSION[version])).exists():
+                    raise FileNotFoundError(
+                        f"Ground truth file '{GROUND_TRUTH_FILES_BY_VERSION[version]}' not found in '{data_dir}' or its parent directory. Please check the data paths and ensure the ground truth files are in place.")
+                else:
+                    data_dir = dirname(data_dir.rstrip('/'))
+            data = pd.read_csv(data_dir / Path(GROUND_TRUTH_FILES_BY_VERSION[version]))
             data = self.prepare_metadata_by_version(version, data)
             data['version'] = version
             tables.append(data)

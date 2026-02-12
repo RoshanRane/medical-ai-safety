@@ -12,7 +12,7 @@ scikit-learn
 albumentations
 torch-lucent
 captum
-fast-slic
+# fast-slic
 seaborn
 plotly
 umap-learn

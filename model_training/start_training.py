@@ -1,6 +1,7 @@
 import copy
 import logging
 import os
+from os.path import abspath, join, dirname, isdir, exists, basename
 from argparse import ArgumentParser
 
 import torch
@@ -20,7 +21,7 @@ torch.multiprocessing.set_sharing_strategy('file_system')
 def get_parser():
     parser = ArgumentParser(description='Train models.', )
     parser.add_argument('--config_file', default=None)
-    parser.add_argument('--visualize_datasets', type=bool, default=None)
+    parser.add_argument('--visualize_datasets', action='store_true', help="Whether to visualize the datasets before training")
     return parser
 
 
@@ -76,7 +77,7 @@ def start_training(config, config_name, visualize_datasets):
 
     # Initialize WandB
     if do_wandb_logging:
-        assert wandb_api_key is not None, f"'wandb_api_key' required if 'wandb_project_name' is provided ({wandb_project_name})"
+        assert wandb_api_key is not None and wandb_api_key!="YOUR_WANDB_KEY", f"'wandb_api_key' required if 'wandb_project_name' is provided ({wandb_project_name})"
         os.environ["WANDB_API_KEY"] = wandb_api_key
         wandb.init(project=wandb_project_name, config=config)
         wandb.run.name = f"{config_name}-{wandb.run.name}"
@@ -126,7 +127,19 @@ def start_training(config, config_name, visualize_datasets):
 
         config_clean = copy.deepcopy(config)
         config_clean["p_artifact"] = 0.0
+        # use the clean dataset instead HACK ROSH where the clean dataset is in the parent directory of the attacked dataset e.g. dataset/microscope_10/ 
+        data_path = config_clean["data_paths"][0].rstrip('/')
+        if (basename(data_path) != 'dataset') and (basename(dirname(data_path)) == 'dataset'):
+            config_clean["data_paths"][0] = abspath(join(data_path, ".."))
+        # check that the new data path is correct
+        assert 'microscope_' not in config_clean["data_paths"][0], \
+            f"Data path for clean dataset seems to be incorrect and pointing to a poisoned dataset instead: {config_clean['data_paths'][0]}"
+
         dataset_clean= load_dataset(config_clean)
+        dataset_val_clean = dataset_clean.get_subset_by_idxs(dataset.idxs_val)
+        dataset_test_clean = dataset_clean.get_subset_by_idxs(dataset.idxs_test)
+        dl_val_dict['val_clean'] = DataLoader(dataset_val_clean, batch_size=batch_size, shuffle=False, num_workers=8)
+        dl_val_dict['test_clean'] = DataLoader(dataset_test_clean, batch_size=batch_size, shuffle=False, num_workers=8)
 
         if "imagenet" in dataset_name:
             all_classes = list(dataset.label_map.keys())
@@ -140,21 +153,20 @@ def start_training(config, config_name, visualize_datasets):
             all_classes = dataset.classes 
 
         config_attacked = copy.deepcopy(config)
-        config_attacked["attacked_classes"] = all_classes
+        # config_attacked["attacked_classes"] = all_classes # ROSH only attack with the artifacts to specified classes
         config_attacked["p_artifact"] = 1.0
-        dataset_attacked = load_dataset(config_attacked)
+        # use the attacked dataset class (e.g. isic_attacked) which has scripts to add artifacts
+        if not config_attacked["dataset_name"].endswith("_attacked"):
+            config_attacked["dataset_name"] = dataset_name + "_attacked" 
+        artifact_type = config.get("artifact_type", "microscope")
 
-        dataset_val_clean = dataset_clean.get_subset_by_idxs(dataset.idxs_val)
-        dataset_test_clean = dataset_clean.get_subset_by_idxs(dataset.idxs_test)
+        dataset_attacked = load_dataset(config_attacked)
         dataset_val_attacked = dataset_attacked.get_subset_by_idxs(dataset.idxs_val)
         dataset_test_attacked = dataset_attacked.get_subset_by_idxs(dataset.idxs_test)
-        
-        dl_val_dict['val_clean'] = DataLoader(dataset_val_clean, batch_size=batch_size, shuffle=False, num_workers=8)
-        dl_val_dict['test_clean'] = DataLoader(dataset_test_clean, batch_size=batch_size, shuffle=False, num_workers=8)
-        dl_val_dict['val_attacked'] = DataLoader(dataset_val_attacked, batch_size=batch_size, shuffle=False,
-                                                 num_workers=8)
-        dl_val_dict['test_attacked'] = DataLoader(dataset_test_attacked, batch_size=batch_size, shuffle=False,
-                                                 num_workers=8)
+        dl_val_dict[f'val_{attacked_classes[0]}-attackedby-{artifact_type}'] = DataLoader(
+            dataset_val_attacked, batch_size=batch_size, shuffle=False, num_workers=8)
+        dl_val_dict[f'test_{attacked_classes[0]}-attackedby-{artifact_type}'] = DataLoader(
+            dataset_test_attacked, batch_size=batch_size, shuffle=False, num_workers=8)
             
     milestones = [int(x) for x in config.get("milestones", "30,40").split(",")]
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer=optimizer, milestones=milestones, gamma=0.1, last_epoch=-1)
@@ -163,17 +175,22 @@ def start_training(config, config_name, visualize_datasets):
     for _ in range(start_epoch):
         scheduler.step()
 
-    visualization_path = f"datasets_visualized/{dataset_name}"
+    visualization_path = config.get("model_savedir", "datasets_visualized")
     
     if visualize_datasets:
         os.makedirs(visualization_path, exist_ok=True)
-        start_idx = max(0, dataset_val.artifact_ids[0] - 10) if hasattr(dataset_val, "artifact_ids") else 0
-        fname = f"dataset_attacked{attacked_classes[0]}_normal.png" if len(attacked_classes) > 0 else f"dataset_normal.png"
+        artifact_type = config.get("artifact_type", "microscope")
+        if dataset_val.ids_by_artifact is not None:
+            start_idx = 0
+        else:
+            start_idx = dataset_val.get_sample_ids_by_artifact(artifact_type)[0]
+
+        fname = f"dataset_attacked{attacked_classes[0]}_by_{artifact_type}_trained.png" if len(attacked_classes) > 0 else f"dataset_normal.png"
         visualize_dataset(dataset_val, f"{visualization_path}/{fname}", start_idx)
-        fname = f"dataset_attacked{attacked_classes[0]}_clean.png" if len(attacked_classes) > 0 else f"dataset_clean.png"
+        fname = f"dataset_attacked{attacked_classes[0]}_by_{artifact_type}_clean.png" if len(attacked_classes) > 0 else f"dataset_clean.png"
         visualize_dataset(dl_val_dict['test_clean'].dataset, f"{visualization_path}/{fname}", start_idx)
-        fname = f"dataset_attacked{attacked_classes[0]}_attacked.png" if len(attacked_classes) > 0 else f"dataset_attacked.png"
-        visualize_dataset(dl_val_dict['test_attacked'].dataset, f"{visualization_path}/{fname}", start_idx)
+        fname = f"dataset_attacked{attacked_classes[0]}_by_{artifact_type}_attacked.png" if len(attacked_classes) > 0 else f"dataset_attacked.png"
+        visualize_dataset(dl_val_dict[f'test_{attacked_classes[0]}-attackedby-{artifact_type}'].dataset, f"{visualization_path}/{fname}", start_idx)
         logger.info("Visualized datasets")
 
     # Start Training
