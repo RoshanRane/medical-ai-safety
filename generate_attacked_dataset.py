@@ -541,7 +541,7 @@ class AttackedDatasetGenerator:
         self.dataset_path = Path(dataset_path)
         self.artifact_type = artifact_type
         self.attacked_classes = attacked_classes if attacked_classes is None else \
-                               (attacked_classes if isinstance(attacked_classes, list) else [attacked_classes])
+                               (attacked_classes if isinstance(attacked_classes, list) else [int(attacked_classes)])
         self.p_artifact = p_artifact
         self.attacked_artifact = attacked_artifact
         self.p_artifact_to_artifact = p_artifact_to_artifact
@@ -706,17 +706,17 @@ class AttackedDatasetGenerator:
         
         # Determine output path
         if output_dir is None:
-            output_dir = self.dataset_path.parent
+            output_dir = self.dataset_path
         else:
             output_dir = Path(output_dir)
         
         # Create output folder name based on attack mode
         if self.attack_mode == 'class':
             p_artifact_percent = int(self.p_artifact * 100)
-            attacked_dir_name = f"{self.artifact_type}_{p_artifact_percent}"
+            attacked_dir_name = f"{self.artifact_type}-{p_artifact_percent:02d}"
         else:
             p_artifact_percent = int(self.p_artifact_to_artifact * 100)
-            attacked_dir_name = f"{self.artifact_type}_on_{self.attacked_artifact}_{p_artifact_percent}"
+            attacked_dir_name = f"{self.artifact_type}-on-{self.attacked_artifact}-{p_artifact_percent:02d}"
         
         output_path = output_dir / attacked_dir_name
         
@@ -742,13 +742,14 @@ class AttackedDatasetGenerator:
         # Process images
         print(f"Generating dataset with artifact '{self.artifact_type}'...")
         if self.attack_mode == 'class':
-            print(f"Altering correlation between: \t output   {self.attacked_classes:<20} \t&\t artifact {self.artifact_type}")
+            print(f"Altering correlation between: \t output   {str(self.attacked_classes):<20} \t&\t artifact {self.artifact_type}")
             print(f"Label-to-artifact probability: {self.p_artifact}")
         else:
-            print(f"Altering correlation between: \t artifact {self.attacked_artifact:<20} \t&\t artifact {self.artifact_type}")
+            print(f"Altering correlation between: \t artifact {str(self.attacked_artifact):<20} \t&\t artifact {self.artifact_type}")
             print(f"Artifact-to-artifact probability: {self.p_artifact_to_artifact}")
         
-        for i, (img_path, label, image_id) in tqdm(enumerate(zip(images, labels, image_ids)), miniters=500):
+        for i, (img_path, label, image_id) in tqdm(enumerate(zip(images, labels, image_ids)), 
+                                                    mininterval=5.0, total=len(images), desc="Generating image samples:"):
             
             # Output path for image
             out_img_path = images_output_path / img_path.name
