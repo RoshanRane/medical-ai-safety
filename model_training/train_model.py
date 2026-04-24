@@ -53,6 +53,7 @@ def train_model(
     model_savedir: str,
     do_wandb_logging: bool,
     start_epoch: int=0,
+    store_best: bool = False,
     percentage_batches: float=1.0,
     compute_per_class_metrics: bool=False
     ):
@@ -78,6 +79,7 @@ def train_model(
         compute_per_class_metrics (bool): boolean indicating whether metrics are computed for each class
     """
     os.makedirs(model_savedir, exist_ok=True)
+    best_val_metric = -1.0
     # Compute metrics before first iteration
     metrics_epoch = run_one_epoch(model, dl_train, criterion, optimizer, device, update_params=False, 
                                   percentage_batches=percentage_batches, compute_per_class_metrics=compute_per_class_metrics)
@@ -101,7 +103,12 @@ def train_model(
                                             compute_per_class_metrics=compute_per_class_metrics)
                 metrics_val = {f"{val_name}_{key}": val for key, val in metrics_val.items()}
                 metrics_epoch = {**metrics_epoch, **metrics_val}
-        
+
+            if store_best and 'val_accuracy_' in metrics_epoch:
+                if metrics_epoch['val_accuracy_'] > best_val_metric:
+                    best_val_metric = metrics_epoch['val_accuracy_']
+                    store_model(model, optimizer, epoch, f"{model_savedir}/checkpoint_{model_name}_best.pth")
+
         log_results(metrics_epoch, do_wandb_logging, epoch, save_csv_too=model_savedir)
         
         if epoch % store_every == 0:

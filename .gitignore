@@ -4,11 +4,8 @@
 __pycache__/
 .ipynb_checkpoints/
 dataset/*
-*.out
-_nohup/*
 *.pth
 *.ckpt
 logs/
-datasets/isic/isic.py
 model_checkpoints/
-config_files/**/*.yaml
+config_files/training/isic_attacked/rosh_*.yaml

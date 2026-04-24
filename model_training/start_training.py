@@ -22,6 +22,7 @@ def get_parser():
     parser = ArgumentParser(description='Train models.', )
     parser.add_argument('--config_file', default=None)
     parser.add_argument('--visualize_datasets', action='store_true', help="Whether to visualize the datasets before training")
+    parser.add_argument('--device', default=None, help="Override the device in the config file (e.g. 'cuda', 'cpu', 'cuda:1')")
     return parser
 
 
@@ -35,6 +36,9 @@ def main():
             config = yaml.safe_load(stream)
         except yaml.YAMLError as exc:
             logging.info(exc)
+
+    if args.device is not None:
+        config['device'] = args.device
 
     config_name = os.path.basename(config_file)[:-5]
     start_training(config, config_name, args.visualize_datasets)
@@ -54,6 +58,7 @@ def start_training(config, config_name, visualize_datasets):
     num_epochs = config['num_epochs']
     eval_every_n_epochs = config['eval_every_n_epochs']
     store_every_n_epochs = config['store_every_n_epochs']
+    store_best_model = config.get('store_best_model', False)
     batch_size = config['batch_size']
     optimizer_name = config['optimizer']
     clean_samples_only = config.get('clean_samples_only', False)
@@ -210,6 +215,7 @@ def start_training(config, config_name, visualize_datasets):
         do_wandb_logging,
         start_epoch,
         percentage_batches=1,
+        store_best=store_best_model,
         compute_per_class_metrics=compute_per_class_metrics
     )
 
