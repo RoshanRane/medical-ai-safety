@@ -5,20 +5,20 @@ attacked_classes:
 p_artifact: False
 batch_size: 64
 data_paths:
-- /ritter/roshan/workspace/ICON/experiments/melanoma/dataset/microscope-20/
+- ICON_DATASET_PATH/microscope-20/
 dataset_name: isic
 img_size: 224
 loss: cross_entropy
 lr: 0.001
 milestones: 100,150
 model_name: vgg16
-model_savedir: /ritter/roshan/workspace/medical-ai-safety/model_checkpoints/
+model_savedir: FHHI_MODEL_SAVEDIR/
 num_epochs: 201
 optimizer: sgd
 pretrained: true
 eval_every_n_epochs: 5
 store_best_model: true
 store_every_n_epochs: 200
-device: cuda:2
+device: cuda:0
 # wandb_api_key: YOUR_WANDB_KEY
 # wandb_project_name: isic-real-training

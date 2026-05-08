@@ -100,7 +100,21 @@ class ISICDataset(BaseDataset):
 
         self.weights = self.compute_weights(dist)
 
-        self.idxs_train, self.idxs_val, self.idxs_test = self.do_train_val_test_split(.1, .1)
+        # Auto-detect split_ids.json in data dir or parent to enforce fixed splits
+        _split_file = None
+        for _candidate in [Path(data_paths[0]), Path(data_paths[0]).parent]:
+            if (_candidate / 'split_ids.json').exists():
+                _split_file = _candidate / 'split_ids.json'
+                break
+        if _split_file is not None:
+            import json as _json
+            _split_ids = _json.load(open(_split_file))
+            self.idxs_train, self.idxs_val, self.idxs_test = \
+                self.do_train_val_test_split_from_ids(_split_ids["val"], _split_ids["test"])
+            print(f"[ISICDataset] Fixed splits from {_split_file} "
+                  f"(val={len(self.idxs_val)}, test={len(self.idxs_test)})")
+        else:
+            self.idxs_train, self.idxs_val, self.idxs_test = self.do_train_val_test_split(.1, .1)
         self.sample_ids_by_artifact = self.get_sample_ids_by_artifact()
 
         self.all_artifact_sample_ids = [sample_id for _, sample_ids in self.sample_ids_by_artifact.items() for sample_id

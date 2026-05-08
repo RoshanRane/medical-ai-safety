@@ -79,3 +79,48 @@ def get_fpr_label(y_true, model_preds, label):
     tn = cm[0, 0]
     fpr = fp / (fp + tn) if (fp + tn) > 0 else 0
     return fpr
+
+
+def compute_tcav_metrics_batch(grad, cav, spatial_pooling="mean"):
+    has_spatial_dims = grad.dim() > 2
+    grad_flat_size = grad.flatten(start_dim=1).shape[1]
+    n_channels = grad.shape[1]
+    cav_size = cav.numel()
+    if cav_size == grad_flat_size:
+        grad_flat = grad.flatten(start_dim=1)
+        cav_flat = cav.flatten()
+        directional_deriv = (grad_flat * cav_flat).sum(dim=1)
+    elif has_spatial_dims and (cav_size == n_channels):
+        if "mean" in spatial_pooling:
+            grad_pooled = grad.mean(dim=(2, 3))
+        elif "max" in spatial_pooling:
+            grad_pooled = grad.amax(dim=(2, 3))
+        else:
+            raise ValueError(f"Unknown spatial_pooling: '{spatial_pooling}'. Use 'mean' or 'max'.")
+        cav_flat = cav.flatten()
+        directional_deriv = (grad_pooled * cav_flat).sum(dim=1)
+    else:
+        raise ValueError(
+            f"Cannot infer mode from shapes. grad: {grad.shape} (flat: {grad_flat_size}), "
+            f"cav: {cav.shape} ({cav_size}), channels: {n_channels}."
+        )
+    assert directional_deriv.dim() == 1
+    TCAV_pos = (directional_deriv > 0).sum().item()
+    TCAV_neg = (directional_deriv < 0).sum().item()
+    TCAV_sensitivity = directional_deriv.abs().cpu().numpy()
+    return {'TCAV_pos': TCAV_pos, 'TCAV_neg': TCAV_neg, 'TCAV_sensitivity': TCAV_sensitivity}
+
+
+def aggregate_tcav_metrics(TCAV_pos, TCAV_neg, TCAV_sens_list):
+    eps = 1e-8
+    tcav_score = TCAV_pos / (TCAV_pos + TCAV_neg + eps)
+    tcav_score_stderr = np.sqrt(tcav_score * (1 - tcav_score) / (TCAV_pos + TCAV_neg + eps))
+    all_sensitivities = np.concatenate(TCAV_sens_list)
+    mean_sensitivity = float(all_sensitivities.mean())
+    mean_sensitivity_stderr = float(all_sensitivities.std() / np.sqrt(len(all_sensitivities) + eps))
+    return {
+        "tcav_score": tcav_score,
+        "tcav_score_stderr": tcav_score_stderr,
+        "mean_sensitivity": mean_sensitivity,
+        "mean_sensitivity_stderr": mean_sensitivity_stderr,
+    }

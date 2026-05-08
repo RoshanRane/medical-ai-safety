@@ -5,16 +5,16 @@ attacked_classes:
 p_artifact: False
 batch_size: 64
 data_paths:
-- /ritter/roshan/workspace/ICON/experiments/melanoma/dataset/microscope-80/
+- ICON_DATASET_PATH/microscope-80/
 dataset_name: isic
-device: cuda:3
+device: cuda:0
 eval_every_n_epochs: 5
 img_size: 224
 loss: cross_entropy
 lr: 0.001
 milestones: 100,150
 model_name: vgg16
-model_savedir: /ritter/roshan/workspace/medical-ai-safety/model_checkpoints/
+model_savedir: FHHI_MODEL_SAVEDIR/
 num_epochs: 201
 optimizer: sgd
 pretrained: true

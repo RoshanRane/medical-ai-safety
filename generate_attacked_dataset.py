@@ -627,10 +627,30 @@ class AttackedDatasetGenerator:
         labels = []
         image_ids = []
         
-        # Use concepts_table.csv to find image paths and labels
-        class_columns = self.config.get('class_columns', 
+        # If no concepts_table.csv was found, fall back to the ISIC ground truth CSV.
+        # Rename raw class columns (MEL, NV, …) to lbl-MEL, lbl-NV, … so the rest
+        # of this method works without modification.
+        if self.concepts_df is None:
+            gt_filenames = ['ISIC_2019_Training_GroundTruth.csv', 'ISIC_2020_Training_GroundTruth.csv']
+            for gt_filename in gt_filenames:
+                gt_path = self.dataset_path / gt_filename
+                if gt_path.exists():
+                    df_gt = pd.read_csv(gt_path)
+                    label_cols = [c for c in df_gt.columns if c != 'image']
+                    df_gt = df_gt.rename(columns={c: f'lbl-{c}' for c in label_cols})
+                    self.concepts_df = df_gt
+                    print(f"No concepts_table.csv found — using {gt_filename} ({len(df_gt)} rows)")
+                    break
+            if self.concepts_df is None:
+                raise FileNotFoundError(
+                    f"Neither concepts_table.csv nor any ground truth CSV found in {self.dataset_path}. "
+                    f"Run 01_prepare_data.ipynb first, or ensure the ground truth CSV is present."
+                )
+
+        # Use concepts_table.csv (or the ground truth CSV loaded above) to find image paths and labels
+        class_columns = self.config.get('class_columns',
             [col for col in self.concepts_df.columns if col.startswith('lbl-')])
-        
+
         for _, row in self.concepts_df.iterrows():
             image_id = row['image']
             
@@ -704,11 +724,7 @@ class AttackedDatasetGenerator:
         if len(images) == 0:
             raise ValueError(f"No images found in {self.dataset_path}")
         
-        # Determine output path
-        if output_dir is None:
-            output_dir = self.dataset_path
-        else:
-            output_dir = Path(output_dir)
+        output_dir = Path(output_dir)
         
         # Create output folder name based on attack mode
         if self.attack_mode == 'class':
@@ -725,7 +741,23 @@ class AttackedDatasetGenerator:
         # Create output directory structure matching input
         images_output_path = output_path / "Train"
         images_output_path.mkdir(parents=True, exist_ok=True)
-        
+
+        # Copy ground truth CSV so ISICDataset can load this dir without needing parent fallback
+        for gt_filename in ['ISIC_2019_Training_GroundTruth.csv', 'ISIC_2020_Training_GroundTruth.csv']:
+            src_gt = self.dataset_path / gt_filename
+            if src_gt.exists():
+                shutil.copy2(src_gt, output_path / gt_filename)
+                print(f"Copied {gt_filename} → {output_path}")
+
+        # Copy split_ids.json to enforce the same val/test as the clean dataset
+        src_split = self.dataset_path / 'split_ids.json'
+        if src_split.exists():
+            shutil.copy2(src_split, output_path / 'split_ids.json')
+            print(f"Copied split_ids.json → {output_path}")
+        else:
+            print(f"Warning: split_ids.json not found at {src_split}. "
+                  f"Run 01_prepare_data.ipynb first to generate it.")
+
         # Create a copy of concepts_df to update
         if self.concepts_df is not None:
             updated_concepts_df = self.concepts_df.copy()
